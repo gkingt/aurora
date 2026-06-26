@@ -217,9 +217,17 @@ func shouldRetryProxyError(err error) bool {
 
 func (h *Handler) nextProxyAfterFailure(currentProxy string) string {
 	if currentProxy != "" {
-		h.proxy.RemoveIP(currentProxy)
+		removed := h.proxy.RemoveIP(currentProxy)
+		slog.Warn("proxy removed from active pool", "proxy", currentProxy, "removed", removed, "available_proxies", h.proxy.GetIPS())
 	}
 	return h.proxy.GetProxyIP()
+}
+
+func (h *Handler) logProxyPoolAfterRequest(proxy string) {
+	if h == nil || h.proxy == nil {
+		return
+	}
+	slog.Info("chat completion request completed", "last_proxy", proxy, "available_proxies", h.proxy.GetIPS())
 }
 
 func (h *Handler) refresh(c *gin.Context) {
@@ -374,6 +382,7 @@ func (h *Handler) nightmare(c *gin.Context) {
 		return
 	}
 	proxyUrl := h.proxy.GetProxyIP()
+	defer func() { h.logProxyPoolAfterRequest(proxyUrl) }()
 	input_tokens := countMessagesTokens(original_request.Messages)
 	secret, status, err := h.secretFromAuthorization(c, original_requestHasFiles(original_request), false, proxyUrl)
 	if err != nil {

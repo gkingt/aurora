@@ -118,7 +118,7 @@ REFUSAL_RETRIES=3
 - 使用 `PROXY_LIST_URL` 时，遇到上游 `429 Too Many Requests` 或代理连接失败会移除当前代理并换代理重试，最多重试 3 次。
 - `PROXY_RETRY_MAX_ATTEMPTS`：代理失败时单个请求最多尝试次数，默认 `3`。
 - `PROXY_REQUEST_TIMEOUT`：代理池请求的单次尝试超时，默认 `20s`；代理质量较差时可设为 `8s`、`10s` 来更快剔除坏代理。
-- `PROXY_CHECK_TIMEOUT`：代理进入可用池前的预检超时，默认 `20s`。
+- `PROXY_CHECK_TIMEOUT`：代理进入可用池前的后台预检超时，默认 `20s`；预检不会阻塞服务启动。
 - `PROXY_CHECK_CONCURRENCY`：代理预检并发数，默认 `20`。
 - `http_proxy`：当未配置其他代理时的备用代理地址。
 - `API_REVERSE_PROXY` / `FILES_REVERSE_PROXY`：分别给 `/backend-api/*` 和 `/files` 端点单独配置转发代理，不配置时走默认代理。

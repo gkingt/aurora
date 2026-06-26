@@ -17,13 +17,19 @@ import (
 )
 
 func checkProxy() *proxys.IProxy {
-	baseProxies := filterAvailableProxies(readStaticProxies())
+	baseProxies := readStaticProxies()
 	proxyListURL := os.Getenv("PROXY_LIST_URL")
-	proxies := mergeProxies(baseProxies, filterAvailableProxies(readProxyListURL(proxyListURL)))
-	proxyIP := proxys.NewIProxyIP(proxies)
+	proxyIP := proxys.NewIProxyIP(baseProxies)
 
 	if proxyListURL != "" {
-		go refreshProxyList(&proxyIP, baseProxies, proxyListURL, proxyListRefreshInterval())
+		go refreshProxyList(&proxyIP, baseProxies, proxyListURL, proxyListRefreshInterval(), true)
+	} else if len(baseProxies) > 0 {
+		go func() {
+			available := filterAvailableProxies(baseProxies)
+			if len(available) > 0 {
+				proxyIP.SetIPS(available)
+			}
+		}()
 	}
 
 	return &proxyIP
@@ -88,16 +94,23 @@ func readProxyListURL(listURL string) []string {
 	return proxies
 }
 
-func refreshProxyList(proxyPool *proxys.IProxy, baseProxies []string, listURL string, interval time.Duration) {
+func refreshProxyList(proxyPool *proxys.IProxy, baseProxies []string, listURL string, interval time.Duration, runImmediately bool) {
+	refresh := func() {
+		remoteProxies := filterAvailableProxies(readProxyListURL(listURL))
+		if len(remoteProxies) == 0 && len(baseProxies) == 0 {
+			slog.Warn("proxy list refresh returned no available proxies; keeping previous proxy pool", "url", listURL)
+			return
+		}
+		proxyPool.SetIPS(mergeProxies(baseProxies, remoteProxies))
+		slog.Info("proxy pool refreshed", "base_proxies", len(baseProxies), "remote_available", len(remoteProxies), "available_proxies", proxyPool.GetIPS())
+	}
+	if runImmediately {
+		refresh()
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for range ticker.C {
-		remoteProxies := filterAvailableProxies(readProxyListURL(listURL))
-		if len(remoteProxies) == 0 && len(baseProxies) == 0 {
-			slog.Warn("proxy list refresh returned no proxies; keeping previous proxy pool", "url", listURL)
-			continue
-		}
-		proxyPool.SetIPS(mergeProxies(baseProxies, remoteProxies))
+		refresh()
 	}
 }
 
