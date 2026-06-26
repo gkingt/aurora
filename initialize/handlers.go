@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -149,7 +150,7 @@ func shouldRetryProxyResponse(response *http.Response) bool {
 	if response == nil {
 		return false
 	}
-	return response.StatusCode == http.StatusTooManyRequests
+	return response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusForbidden || response.StatusCode == 524
 }
 
 func shouldRetryProxyError(err error) bool {
@@ -163,7 +164,22 @@ func shouldRetryProxyError(err error) bool {
 		strings.Contains(message, "timeout") ||
 		strings.Contains(message, "tls handshake") ||
 		strings.Contains(message, "no such host") ||
-		strings.Contains(message, "network")
+		strings.Contains(message, "network") ||
+		strings.Contains(message, "unexpected eof") ||
+		strings.Contains(message, "prepare(") ||
+		strings.Contains(message, "/conversation/prepare") ||
+		strings.Contains(message, "status code 403") ||
+		strings.Contains(message, "status code 429") ||
+		strings.Contains(message, "status code 524") ||
+		strings.Contains(message, "code 524") ||
+		strings.Contains(message, "524") ||
+		strings.Contains(message, "too many requests") ||
+		strings.Contains(message, "cloudflare timeout") ||
+		strings.Contains(message, "sentinel prepare failed") ||
+		strings.Contains(message, "sentinel finalize failed") ||
+		strings.Contains(message, "cloudflare") ||
+		strings.Contains(message, "forbidden") ||
+		strings.Contains(message, "<html")
 }
 
 func (h *Handler) nextProxyAfterFailure(currentProxy string) string {
@@ -404,9 +420,11 @@ func (h *Handler) nightmare(c *gin.Context) {
 			translated_request = chatgptrequestconverter.ConvertAPIRequest(original_request, secret, proxyUrl, client)
 		}
 
+		slog.Info("chat completion upstream request", "proxy", proxyUrl, "attempt", attempt+1, "max_attempts", maxProxyRetries)
 		response, wsConn, turnStile, status, err = h.postConversationGptClientOrder(&client, &secret, translated_request, proxyUrl, original_request.Stream, clientState)
 		if err != nil {
 			if proxyRetryEnabled() && attempt+1 < maxProxyRetries && shouldRetryProxyError(err) {
+				slog.Warn("chat completion proxy request failed; switching proxy", "proxy", proxyUrl, "attempt", attempt+1, "err", err)
 				proxyUrl = h.nextProxyAfterFailure(proxyUrl)
 				continue
 			}
@@ -424,6 +442,7 @@ func (h *Handler) nightmare(c *gin.Context) {
 				wsConn = nil
 			}
 			response.Body.Close()
+			slog.Warn("chat completion upstream returned retryable status; switching proxy", "proxy", proxyUrl, "attempt", attempt+1, "status", response.StatusCode)
 			proxyUrl = h.nextProxyAfterFailure(proxyUrl)
 			continue
 		}
