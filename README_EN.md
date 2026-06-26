@@ -76,6 +76,8 @@ TLS_KEY=path_to_your_tls_key
 
 # Proxy
 PROXY_URL=your_proxy_url
+PROXY_LIST_URL=https://example.com/proxies.txt
+PROXY_LIST_REFRESH_INTERVAL=1h
 http_proxy=
 
 # Reverse proxy for specific endpoints (optional)
@@ -104,7 +106,11 @@ Details:
 - `FREE_ACCOUNTS`: Whether to automatically generate free UUID accounts; disabled by default.
 - `FREE_ACCOUNTS_NUM`: Number of automatically generated free UUID accounts; default is 1024.
 - `TLS_CERT` / `TLS_KEY`: When both are configured, HTTPS is enabled.
-- `PROXY_URL`: Proxy pool address. `http_proxy` is the fallback proxy address.
+- `PROXY_URL`: Single proxy address.
+- `PROXY_LIST_URL`: Remote proxy list txt URL, one proxy per line. The service refreshes it dynamically at runtime without writing it to disk and randomly picks one proxy for each request.
+- `PROXY_LIST_REFRESH_INTERVAL`: Remote proxy list refresh interval, defaults to `1h`. Supports Go duration values such as `30m` and `10m`.
+- When `PROXY_LIST_URL` is enabled, upstream `429 Too Many Requests` or proxy connection failures remove the current proxy and retry with another proxy, up to 3 attempts.
+- `http_proxy`: Fallback proxy address when no other proxy is configured.
 - `API_REVERSE_PROXY` / `FILES_REVERSE_PROXY`: Configure separate forward proxies for `/backend-api/*` and `/files` endpoints respectively; falls back to the default proxy when not set.
 - `BASE_URL`: Custom upstream ChatGPT API base URL, defaults to `https://chatgpt.com/backend-api`.
 - `STREAM_MODE`: Set to `false` to force non-streaming Chat Completions; defaults to `true`.

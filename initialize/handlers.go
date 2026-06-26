@@ -141,6 +141,38 @@ func (h *Handler) postConversationGptClientOrder(client **bogdanfinn.TlsClient, 
 	return response, wsConn, turnStile, http.StatusOK, nil
 }
 
+func proxyRetryEnabled() bool {
+	return strings.TrimSpace(os.Getenv("PROXY_LIST_URL")) != ""
+}
+
+func shouldRetryProxyResponse(response *http.Response) bool {
+	if response == nil {
+		return false
+	}
+	return response.StatusCode == http.StatusTooManyRequests
+}
+
+func shouldRetryProxyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "proxy") ||
+		strings.Contains(message, "connect") ||
+		strings.Contains(message, "connection") ||
+		strings.Contains(message, "timeout") ||
+		strings.Contains(message, "tls handshake") ||
+		strings.Contains(message, "no such host") ||
+		strings.Contains(message, "network")
+}
+
+func (h *Handler) nextProxyAfterFailure(currentProxy string) string {
+	if currentProxy != "" {
+		h.proxy.RemoveIP(currentProxy)
+	}
+	return h.proxy.GetProxyIP()
+}
+
 func (h *Handler) refresh(c *gin.Context) {
 	var refreshToken officialtypes.OpenAIRefreshToken
 	err := c.BindJSON(&refreshToken)
@@ -320,6 +352,12 @@ func (h *Handler) nightmare(c *gin.Context) {
 		original_request.Stream = false
 	}
 
+	// Use the model from the original request, default to "auto"
+	reqModel := original_request.Model
+	if reqModel == "" {
+		reqModel = "auto"
+	}
+
 	// Convert the chat request to a ChatGPT request
 	translated_request := chatgptrequestconverter.ConvertAPIRequest(original_request, secret, proxyUrl, client)
 
@@ -334,25 +372,69 @@ func (h *Handler) nightmare(c *gin.Context) {
 	clientState.ConversationID = translated_request.ConversationID
 	clientState.ParentMessageID = translated_request.ParentMessageID
 
-	// Use the model from the original request, default to "auto"
-	reqModel := original_request.Model
-	if reqModel == "" {
-		reqModel = "auto"
-	}
-
 	// 工具调用提前分支:不进入原 continue loop
 	if toolsEnabled {
 		h.handleToolCalling(c, &original_request, &client, &secret, &clientState, &reqModel, &uid, &proxyUrl, &input_tokens)
 		return
 	}
 
-	response, wsConn, turnStile, status, err := h.postConversationGptClientOrder(&client, &secret, translated_request, proxyUrl, original_request.Stream, clientState)
-	if err != nil {
-		c.JSON(status, gin.H{"error": gin.H{
-			"message": err.Error(),
-			"type":    "request_conversion_error",
-			"param":   "model",
-			"code":    "request_conversion_error",
+	var response *http.Response
+	var wsConn *websocket.Conn
+	var turnStile *chatgpt.TurnStile
+	maxProxyRetries := 1
+	if proxyRetryEnabled() {
+		maxProxyRetries = 3
+	}
+	for attempt := 0; attempt < maxProxyRetries; attempt++ {
+		if attempt > 0 {
+			if proxyUrl == "" {
+				break
+			}
+			client = bogdanfinn.NewStdClient()
+			secret, status, err = h.secretFromAuthorization(c, original_requestHasFiles(original_request), false, proxyUrl)
+			if err != nil {
+				c.JSON(status, gin.H{"error": gin.H{
+					"message": err.Error(),
+					"type":    "authorization_error",
+					"param":   "Authorization",
+					"code":    status,
+				}})
+				return
+			}
+			translated_request = chatgptrequestconverter.ConvertAPIRequest(original_request, secret, proxyUrl, client)
+		}
+
+		response, wsConn, turnStile, status, err = h.postConversationGptClientOrder(&client, &secret, translated_request, proxyUrl, original_request.Stream, clientState)
+		if err != nil {
+			if proxyRetryEnabled() && attempt+1 < maxProxyRetries && shouldRetryProxyError(err) {
+				proxyUrl = h.nextProxyAfterFailure(proxyUrl)
+				continue
+			}
+			c.JSON(status, gin.H{"error": gin.H{
+				"message": err.Error(),
+				"type":    "request_conversion_error",
+				"param":   "model",
+				"code":    "request_conversion_error",
+			}})
+			return
+		}
+		if shouldRetryProxyResponse(response) && proxyRetryEnabled() && attempt+1 < maxProxyRetries {
+			if wsConn != nil {
+				wsConn.Close()
+				wsConn = nil
+			}
+			response.Body.Close()
+			proxyUrl = h.nextProxyAfterFailure(proxyUrl)
+			continue
+		}
+		break
+	}
+	if response == nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{
+			"message": "No available proxy after retries",
+			"type":    "proxy_error",
+			"param":   nil,
+			"code":    "proxy_error",
 		}})
 		return
 	}

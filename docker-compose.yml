@@ -2,8 +2,13 @@ version: '3'
 
 services:
   app:
-    image: ghcr.io/aurora-develop/aurora:latest
+    build: .
     container_name: aurora
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
-      - '8080:8080'
+      - '8070:8070'
+    volumes:
+      - ./access_tokens.txt:/access_tokens.txt:ro
+      - ./free_tokens.txt:/free_tokens.txt:ro

@@ -78,6 +78,8 @@ TLS_KEY=path_to_your_tls_key
 
 # 代理
 PROXY_URL=your_proxy_url
+PROXY_LIST_URL=https://example.com/proxies.txt
+PROXY_LIST_REFRESH_INTERVAL=1h
 http_proxy=
 
 # 转发代理（可选，给 backend-api / files 端点单独配置）
@@ -106,7 +108,11 @@ REFUSAL_RETRIES=3
 - `FREE_ACCOUNTS`：是否自动生成免费 UUID 账号，默认关闭。
 - `FREE_ACCOUNTS_NUM`：自动生成免费 UUID 账号数量，默认 1024。
 - `TLS_CERT` / `TLS_KEY`：同时配置时启用 HTTPS。
-- `PROXY_URL`：代理池地址。`http_proxy` 为备用代理地址。
+- `PROXY_URL`：单个代理地址。
+- `PROXY_LIST_URL`：远程代理列表 txt 链接，每行一个代理；运行中按刷新间隔动态拉取，不落盘，每次请求随机取一个。
+- `PROXY_LIST_REFRESH_INTERVAL`：远程代理列表刷新间隔，默认 `1h`，支持 `30m`、`10m` 等 Go duration 格式。
+- 使用 `PROXY_LIST_URL` 时，遇到上游 `429 Too Many Requests` 或代理连接失败会移除当前代理并换代理重试，最多重试 3 次。
+- `http_proxy`：当未配置其他代理时的备用代理地址。
 - `API_REVERSE_PROXY` / `FILES_REVERSE_PROXY`：分别给 `/backend-api/*` 和 `/files` 端点单独配置转发代理，不配置时走默认代理。
 - `BASE_URL`：自定义上游 ChatGPT API 地址，默认 `https://chatgpt.com/backend-api`。
 - `STREAM_MODE`：设为 `false` 时强制关闭 Chat Completions 流式返回，默认 `true`。
