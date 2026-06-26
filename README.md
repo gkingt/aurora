@@ -82,6 +82,8 @@ PROXY_LIST_URL=https://example.com/proxies.txt
 PROXY_LIST_REFRESH_INTERVAL=1h
 PROXY_RETRY_MAX_ATTEMPTS=3
 PROXY_REQUEST_TIMEOUT=20s
+PROXY_CHECK_TIMEOUT=20s
+PROXY_CHECK_CONCURRENCY=20
 http_proxy=
 
 # 转发代理（可选，给 backend-api / files 端点单独配置）
@@ -116,6 +118,8 @@ REFUSAL_RETRIES=3
 - 使用 `PROXY_LIST_URL` 时，遇到上游 `429 Too Many Requests` 或代理连接失败会移除当前代理并换代理重试，最多重试 3 次。
 - `PROXY_RETRY_MAX_ATTEMPTS`：代理失败时单个请求最多尝试次数，默认 `3`。
 - `PROXY_REQUEST_TIMEOUT`：代理池请求的单次尝试超时，默认 `20s`；代理质量较差时可设为 `8s`、`10s` 来更快剔除坏代理。
+- `PROXY_CHECK_TIMEOUT`：代理进入可用池前的预检超时，默认 `20s`。
+- `PROXY_CHECK_CONCURRENCY`：代理预检并发数，默认 `20`。
 - `http_proxy`：当未配置其他代理时的备用代理地址。
 - `API_REVERSE_PROXY` / `FILES_REVERSE_PROXY`：分别给 `/backend-api/*` 和 `/files` 端点单独配置转发代理，不配置时走默认代理。
 - `BASE_URL`：自定义上游 ChatGPT API 地址，默认 `https://chatgpt.com/backend-api`。

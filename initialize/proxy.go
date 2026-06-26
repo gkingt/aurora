@@ -1,6 +1,8 @@
 package initialize
 
 import (
+	"aurora/httpclient"
+	"aurora/httpclient/bogdanfinn"
 	"aurora/internal/proxys"
 	"bufio"
 	"io"
@@ -8,14 +10,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 func checkProxy() *proxys.IProxy {
-	baseProxies := readStaticProxies()
+	baseProxies := filterAvailableProxies(readStaticProxies())
 	proxyListURL := os.Getenv("PROXY_LIST_URL")
-	proxies := mergeProxies(baseProxies, readProxyListURL(proxyListURL))
+	proxies := mergeProxies(baseProxies, filterAvailableProxies(readProxyListURL(proxyListURL)))
 	proxyIP := proxys.NewIProxyIP(proxies)
 
 	if proxyListURL != "" {
@@ -88,7 +92,7 @@ func refreshProxyList(proxyPool *proxys.IProxy, baseProxies []string, listURL st
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for range ticker.C {
-		remoteProxies := readProxyListURL(listURL)
+		remoteProxies := filterAvailableProxies(readProxyListURL(listURL))
 		if len(remoteProxies) == 0 && len(baseProxies) == 0 {
 			slog.Warn("proxy list refresh returned no proxies; keeping previous proxy pool", "url", listURL)
 			continue
@@ -108,6 +112,87 @@ func proxyListRefreshInterval() time.Duration {
 		return time.Hour
 	}
 	return interval
+}
+
+func proxyCheckTimeout() time.Duration {
+	value := strings.TrimSpace(os.Getenv("PROXY_CHECK_TIMEOUT"))
+	if value == "" {
+		return 20 * time.Second
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		slog.Warn("PROXY_CHECK_TIMEOUT is invalid, using 20s", "value", value, "err", err)
+		return 20 * time.Second
+	}
+	return timeout
+}
+
+func proxyCheckConcurrency() int {
+	value := strings.TrimSpace(os.Getenv("PROXY_CHECK_CONCURRENCY"))
+	if value == "" {
+		return 20
+	}
+	concurrency, err := strconv.Atoi(value)
+	if err != nil || concurrency <= 0 {
+		slog.Warn("PROXY_CHECK_CONCURRENCY is invalid, using 20", "value", value, "err", err)
+		return 20
+	}
+	return concurrency
+}
+
+func filterAvailableProxies(proxies []string) []string {
+	if len(proxies) == 0 {
+		return nil
+	}
+	timeout := proxyCheckTimeout()
+	workerLimit := proxyCheckConcurrency()
+	if workerLimit > len(proxies) {
+		workerLimit = len(proxies)
+	}
+	sem := make(chan struct{}, workerLimit)
+	available := make([]string, 0, len(proxies))
+	var lock sync.Mutex
+	var wg sync.WaitGroup
+	for _, proxy := range proxies {
+		proxy := proxy
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if checkProxyAvailable(proxy, timeout) {
+				lock.Lock()
+				available = append(available, proxy)
+				lock.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	slog.Info("proxy preflight completed", "total", len(proxies), "available", len(available), "timeout", timeout.String())
+	return available
+}
+
+func checkProxyAvailable(proxy string, timeout time.Duration) bool {
+	client := bogdanfinn.NewStdClientWithTimeout(timeout)
+	if err := client.SetProxy(proxy); err != nil {
+		slog.Debug("proxy preflight set proxy failed", "proxy", proxy, "err", err)
+		return false
+	}
+	headers := httpclient.AuroraHeaders{}
+	headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+	response, err := client.Request(http.MethodGet, "https://chatgpt.com/", headers, nil, nil)
+	if err != nil {
+		slog.Debug("proxy preflight failed", "proxy", proxy, "err", err)
+		return false
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
+	if response.StatusCode >= 200 && response.StatusCode < 500 {
+		return true
+	}
+	slog.Debug("proxy preflight returned bad status", "proxy", proxy, "status", response.StatusCode)
+	return false
 }
 
 func mergeProxies(staticProxies []string, remoteProxies []string) []string {
