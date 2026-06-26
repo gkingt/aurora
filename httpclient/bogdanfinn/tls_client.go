@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	tls_client "github.com/bogdanfinn/tls-client"
@@ -19,9 +20,17 @@ type TlsClient struct {
 type handler func(r *fhttp.Request) error
 
 func NewStdClient() *TlsClient {
+	return NewStdClientWithTimeout(600 * time.Second)
+}
+
+func NewStdClientWithTimeout(timeout time.Duration) *TlsClient {
+	seconds := int(timeout.Seconds())
+	if seconds <= 0 {
+		seconds = 600
+	}
 	client, _ := tls_client.NewHttpClient(tls_client.NewNoopLogger(), []tls_client.HttpClientOption{
 		tls_client.WithCookieJar(tls_client.NewCookieJar()),
-		tls_client.WithTimeoutSeconds(600),
+		tls_client.WithTimeoutSeconds(seconds),
 		tls_client.WithClientProfile(profiles.Chrome_146),
 	}...)
 

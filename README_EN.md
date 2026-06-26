@@ -78,6 +78,8 @@ TLS_KEY=path_to_your_tls_key
 PROXY_URL=your_proxy_url
 PROXY_LIST_URL=https://example.com/proxies.txt
 PROXY_LIST_REFRESH_INTERVAL=1h
+PROXY_RETRY_MAX_ATTEMPTS=3
+PROXY_REQUEST_TIMEOUT=20s
 http_proxy=
 
 # Reverse proxy for specific endpoints (optional)
@@ -110,6 +112,8 @@ Details:
 - `PROXY_LIST_URL`: Remote proxy list txt URL, one proxy per line. The service refreshes it dynamically at runtime without writing it to disk and randomly picks one proxy for each request.
 - `PROXY_LIST_REFRESH_INTERVAL`: Remote proxy list refresh interval, defaults to `1h`. Supports Go duration values such as `30m` and `10m`.
 - When `PROXY_LIST_URL` is enabled, upstream `429 Too Many Requests` or proxy connection failures remove the current proxy and retry with another proxy, up to 3 attempts.
+- `PROXY_RETRY_MAX_ATTEMPTS`: Maximum attempts for a request after proxy failures, defaults to `3`.
+- `PROXY_REQUEST_TIMEOUT`: Per-attempt timeout for proxy-pool requests, defaults to `20s`. Use values like `8s` or `10s` to fail bad proxies faster.
 - `http_proxy`: Fallback proxy address when no other proxy is configured.
 - `API_REVERSE_PROXY` / `FILES_REVERSE_PROXY`: Configure separate forward proxies for `/backend-api/*` and `/files` endpoints respectively; falls back to the default proxy when not set.
 - `BASE_URL`: Custom upstream ChatGPT API base URL, defaults to `https://chatgpt.com/backend-api`.

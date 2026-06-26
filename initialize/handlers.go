@@ -146,6 +146,39 @@ func proxyRetryEnabled() bool {
 	return strings.TrimSpace(os.Getenv("PROXY_LIST_URL")) != ""
 }
 
+func proxyRetryMaxAttempts() int {
+	value := strings.TrimSpace(os.Getenv("PROXY_RETRY_MAX_ATTEMPTS"))
+	if value == "" {
+		return 3
+	}
+	attempts, err := strconv.Atoi(value)
+	if err != nil || attempts <= 0 {
+		slog.Warn("PROXY_RETRY_MAX_ATTEMPTS is invalid, using 3", "value", value, "err", err)
+		return 3
+	}
+	return attempts
+}
+
+func proxyRequestTimeout() time.Duration {
+	value := strings.TrimSpace(os.Getenv("PROXY_REQUEST_TIMEOUT"))
+	if value == "" {
+		return 20 * time.Second
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		slog.Warn("PROXY_REQUEST_TIMEOUT is invalid, using 20s", "value", value, "err", err)
+		return 20 * time.Second
+	}
+	return timeout
+}
+
+func newChatHTTPClient() *bogdanfinn.TlsClient {
+	if proxyRetryEnabled() {
+		return bogdanfinn.NewStdClientWithTimeout(proxyRequestTimeout())
+	}
+	return bogdanfinn.NewStdClient()
+}
+
 func shouldRetryProxyResponse(response *http.Response) bool {
 	if response == nil {
 		return false
@@ -202,7 +235,7 @@ func (h *Handler) refresh(c *gin.Context) {
 		return
 	}
 	proxyUrl := h.proxy.GetProxyIP()
-	client := bogdanfinn.NewStdClient()
+	client := newChatHTTPClient()
 	openaiRefreshToken, status, err := chatgpt.GETTokenForRefreshToken(client, refreshToken.RefreshToken, proxyUrl)
 	if err != nil {
 		c.JSON(400, gin.H{
@@ -399,14 +432,14 @@ func (h *Handler) nightmare(c *gin.Context) {
 	var turnStile *chatgpt.TurnStile
 	maxProxyRetries := 1
 	if proxyRetryEnabled() {
-		maxProxyRetries = 3
+		maxProxyRetries = proxyRetryMaxAttempts()
 	}
 	for attempt := 0; attempt < maxProxyRetries; attempt++ {
 		if attempt > 0 {
 			if proxyUrl == "" {
 				break
 			}
-			client = bogdanfinn.NewStdClient()
+			client = newChatHTTPClient()
 			secret, status, err = h.secretFromAuthorization(c, original_requestHasFiles(original_request), false, proxyUrl)
 			if err != nil {
 				c.JSON(status, gin.H{"error": gin.H{
