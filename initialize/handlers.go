@@ -162,14 +162,27 @@ func proxyRetryMaxAttempts() int {
 func proxyRequestTimeout() time.Duration {
 	value := strings.TrimSpace(os.Getenv("PROXY_REQUEST_TIMEOUT"))
 	if value == "" {
-		return 20 * time.Second
+		return 10 * time.Second
 	}
 	timeout, err := time.ParseDuration(value)
 	if err != nil || timeout <= 0 {
-		slog.Warn("PROXY_REQUEST_TIMEOUT is invalid, using 20s", "value", value, "err", err)
-		return 20 * time.Second
+		slog.Warn("PROXY_REQUEST_TIMEOUT is invalid, using 10s", "value", value, "err", err)
+		return 10 * time.Second
 	}
 	return timeout
+}
+
+func proxySlowThreshold() time.Duration {
+	value := strings.TrimSpace(os.Getenv("PROXY_SLOW_THRESHOLD"))
+	if value == "" {
+		return 15 * time.Second
+	}
+	threshold, err := time.ParseDuration(value)
+	if err != nil || threshold < 0 {
+		slog.Warn("PROXY_SLOW_THRESHOLD is invalid, using 15s", "value", value, "err", err)
+		return 15 * time.Second
+	}
+	return threshold
 }
 
 func newChatHTTPClient() *bogdanfinn.TlsClient {
@@ -462,13 +475,19 @@ func (h *Handler) nightmare(c *gin.Context) {
 			translated_request = chatgptrequestconverter.ConvertAPIRequest(original_request, secret, proxyUrl, client)
 		}
 
-		slog.Info("chat completion upstream request", "proxy", proxyUrl, "attempt", attempt+1, "max_attempts", maxProxyRetries)
+		slog.Info("chat completion upstream request", "request_id", uid, "proxy", proxyUrl, "attempt", attempt+1, "max_attempts", maxProxyRetries)
+		attemptStartedAt := time.Now()
 		response, wsConn, turnStile, status, err = h.postConversationGptClientOrder(&client, &secret, translated_request, proxyUrl, original_request.Stream, clientState)
+		attemptDuration := time.Since(attemptStartedAt)
+		slog.Info("chat completion upstream attempt completed", "request_id", uid, "proxy", proxyUrl, "attempt", attempt+1, "duration", attemptDuration.String(), "status", status, "err", err)
 		if err != nil {
 			if proxyRetryEnabled() && attempt+1 < maxProxyRetries && shouldRetryProxyError(err) {
-				slog.Warn("chat completion proxy request failed; switching proxy", "proxy", proxyUrl, "attempt", attempt+1, "err", err)
+				slog.Warn("chat completion proxy request failed; switching proxy", "request_id", uid, "proxy", proxyUrl, "attempt", attempt+1, "err", err)
 				proxyUrl = h.nextProxyAfterFailure(proxyUrl)
 				continue
+			}
+			if proxyRetryEnabled() && shouldRetryProxyError(err) {
+				h.nextProxyAfterFailure(proxyUrl)
 			}
 			c.JSON(status, gin.H{"error": gin.H{
 				"message": err.Error(),
@@ -484,9 +503,16 @@ func (h *Handler) nightmare(c *gin.Context) {
 				wsConn = nil
 			}
 			response.Body.Close()
-			slog.Warn("chat completion upstream returned retryable status; switching proxy", "proxy", proxyUrl, "attempt", attempt+1, "status", response.StatusCode)
+			slog.Warn("chat completion upstream returned retryable status; switching proxy", "request_id", uid, "proxy", proxyUrl, "attempt", attempt+1, "status", response.StatusCode)
 			proxyUrl = h.nextProxyAfterFailure(proxyUrl)
 			continue
+		}
+		if proxyRetryEnabled() {
+			threshold := proxySlowThreshold()
+			if threshold > 0 && attemptDuration > threshold {
+				removed := h.proxy.RemoveIP(proxyUrl)
+				slog.Warn("slow proxy removed from active pool", "request_id", uid, "proxy", proxyUrl, "duration", attemptDuration.String(), "threshold", threshold.String(), "removed", removed, "available_proxies", h.proxy.GetIPS())
+			}
 		}
 		break
 	}

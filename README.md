@@ -81,7 +81,8 @@ PROXY_URL=your_proxy_url
 PROXY_LIST_URL=https://example.com/proxies.txt
 PROXY_LIST_REFRESH_INTERVAL=1h
 PROXY_RETRY_MAX_ATTEMPTS=3
-PROXY_REQUEST_TIMEOUT=20s
+PROXY_REQUEST_TIMEOUT=10s
+PROXY_SLOW_THRESHOLD=15s
 PROXY_CHECK_TIMEOUT=20s
 PROXY_CHECK_CONCURRENCY=20
 http_proxy=
@@ -117,7 +118,8 @@ REFUSAL_RETRIES=3
 - `PROXY_LIST_REFRESH_INTERVAL`：远程代理列表刷新间隔，默认 `1h`，支持 `30m`、`10m` 等 Go duration 格式。
 - 使用 `PROXY_LIST_URL` 时，遇到上游 `429 Too Many Requests` 或代理连接失败会移除当前代理并换代理重试，最多重试 3 次。
 - `PROXY_RETRY_MAX_ATTEMPTS`：代理失败时单个请求最多尝试次数，默认 `3`。
-- `PROXY_REQUEST_TIMEOUT`：代理池请求的单次尝试超时，默认 `20s`；代理质量较差时可设为 `8s`、`10s` 来更快剔除坏代理。
+- `PROXY_REQUEST_TIMEOUT`：代理池请求的单次尝试超时，默认 `10s`；代理质量较差时可设为 `5s`、`8s` 来更快剔除坏代理。
+- `PROXY_SLOW_THRESHOLD`：上游准备阶段耗时超过该阈值时移除当前代理，默认 `15s`；设为 `0` 可关闭慢代理淘汰。
 - `PROXY_CHECK_TIMEOUT`：代理进入可用池前的后台预检超时，默认 `20s`；预检不会阻塞服务启动。
 - `PROXY_CHECK_CONCURRENCY`：代理预检并发数，默认 `20`。
 - `http_proxy`：当未配置其他代理时的备用代理地址。

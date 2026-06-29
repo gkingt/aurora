@@ -79,7 +79,8 @@ PROXY_URL=your_proxy_url
 PROXY_LIST_URL=https://example.com/proxies.txt
 PROXY_LIST_REFRESH_INTERVAL=1h
 PROXY_RETRY_MAX_ATTEMPTS=3
-PROXY_REQUEST_TIMEOUT=20s
+PROXY_REQUEST_TIMEOUT=10s
+PROXY_SLOW_THRESHOLD=15s
 PROXY_CHECK_TIMEOUT=20s
 PROXY_CHECK_CONCURRENCY=20
 http_proxy=
@@ -115,7 +116,8 @@ Details:
 - `PROXY_LIST_REFRESH_INTERVAL`: Remote proxy list refresh interval, defaults to `1h`. Supports Go duration values such as `30m` and `10m`.
 - When `PROXY_LIST_URL` is enabled, upstream `429 Too Many Requests` or proxy connection failures remove the current proxy and retry with another proxy, up to 3 attempts.
 - `PROXY_RETRY_MAX_ATTEMPTS`: Maximum attempts for a request after proxy failures, defaults to `3`.
-- `PROXY_REQUEST_TIMEOUT`: Per-attempt timeout for proxy-pool requests, defaults to `20s`. Use values like `8s` or `10s` to fail bad proxies faster.
+- `PROXY_REQUEST_TIMEOUT`: Per-attempt timeout for proxy-pool requests, defaults to `10s`. Use values like `5s` or `8s` to fail bad proxies faster.
+- `PROXY_SLOW_THRESHOLD`: Remove a proxy when the upstream preparation phase exceeds this threshold, defaults to `15s`. Set to `0` to disable slow-proxy eviction.
 - `PROXY_CHECK_TIMEOUT`: Background preflight timeout before a proxy enters the active pool, defaults to `20s`. Preflight does not block service startup.
 - `PROXY_CHECK_CONCURRENCY`: Proxy preflight concurrency, defaults to `20`.
 - `http_proxy`: Fallback proxy address when no other proxy is configured.
