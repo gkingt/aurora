@@ -34,6 +34,21 @@ func (p *IProxy) SetIPS(ips []string) {
 	p.ips = ips
 }
 
+func (p *IProxy) AddIP(ip string) bool {
+	if p == nil || ip == "" {
+		return false
+	}
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	for _, candidate := range p.ips {
+		if candidate == ip {
+			return false
+		}
+	}
+	p.ips = append(p.ips, ip)
+	return true
+}
+
 func (p *IProxy) RemoveIP(ip string) bool {
 	if p == nil || ip == "" {
 		return false

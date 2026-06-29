@@ -25,7 +25,7 @@ func checkProxy() *proxys.IProxy {
 		go refreshProxyList(&proxyIP, baseProxies, proxyListURL, proxyListRefreshInterval(), true)
 	} else if len(baseProxies) > 0 {
 		go func() {
-			available := filterAvailableProxies(baseProxies)
+			available := filterAvailableProxies(baseProxies, nil)
 			if len(available) > 0 {
 				proxyIP.SetIPS(available)
 			}
@@ -96,7 +96,13 @@ func readProxyListURL(listURL string) []string {
 
 func refreshProxyList(proxyPool *proxys.IProxy, baseProxies []string, listURL string, interval time.Duration, runImmediately bool) {
 	refresh := func() {
-		remoteProxies := filterAvailableProxies(readProxyListURL(listURL))
+		if len(baseProxies) > 0 {
+			proxyPool.SetIPS(baseProxies)
+		}
+		remoteProxies := filterAvailableProxies(readProxyListURL(listURL), func(proxy string) {
+			added := proxyPool.AddIP(proxy)
+			slog.Info("proxy added to active pool", "proxy", proxy, "added", added, "available_proxies", proxyPool.GetIPS())
+		})
 		if len(remoteProxies) == 0 && len(baseProxies) == 0 {
 			slog.Warn("proxy list refresh returned no available proxies; keeping previous proxy pool", "url", listURL)
 			return
@@ -153,7 +159,7 @@ func proxyCheckConcurrency() int {
 	return concurrency
 }
 
-func filterAvailableProxies(proxies []string) []string {
+func filterAvailableProxies(proxies []string, onAvailable func(string)) []string {
 	if len(proxies) == 0 {
 		return nil
 	}
@@ -166,6 +172,7 @@ func filterAvailableProxies(proxies []string) []string {
 	available := make([]string, 0, len(proxies))
 	var lock sync.Mutex
 	var wg sync.WaitGroup
+	checked := 0
 	for _, proxy := range proxies {
 		proxy := proxy
 		sem <- struct{}{}
@@ -173,11 +180,20 @@ func filterAvailableProxies(proxies []string) []string {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if checkProxyAvailable(proxy, timeout) {
-				lock.Lock()
+			ok := checkProxyAvailable(proxy, timeout)
+			lock.Lock()
+			checked++
+			if ok {
 				available = append(available, proxy)
-				lock.Unlock()
 			}
+			currentChecked := checked
+			currentAvailable := len(available)
+			lock.Unlock()
+
+			if ok && onAvailable != nil {
+				onAvailable(proxy)
+			}
+			slog.Info("proxy preflight progress", "proxy", proxy, "available", ok, "checked", currentChecked, "total", len(proxies), "available_count", currentAvailable)
 		}()
 	}
 	wg.Wait()
